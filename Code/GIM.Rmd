@@ -1,0 +1,1648 @@
+---
+title: "Two-way interaction between arboviruses and the microbiota of mosquitoes"
+output: 
+  html_document:
+    theme: default       #样式
+    highlight: tango
+    toc: true
+    toc_depth: 5 
+    toc_float: 
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load-packages, include=FALSE}
+necessary_packages <- c('phyloseq', 'ggplot2', 'RColorBrewer', 'ComplexHeatmap', 'viridis', 'DESeq2','wesanderson',
+                        'dplyr','magrittr','knitr','reshape2','vegan', 'tidyr', 'ggpubr', 'circlize')
+packages <- lapply(necessary_packages, library, character.only = TRUE)
+shap=c(15,16,17,7,8,10,11,3,4,13,18,12)
+```
+
+# 1 Eukaryotic virome analysis #
+```{r}
+#### load phyloseq project ####
+GP.M1 <- readRDS("~/Desktop/mosq_Guad_infection/RDS/GIM_virome_raw.RDS")
+GP.M1
+```
+
+## 1.1 Eukaryotic virome of *Aedes aegypti* ##
+```{r fig.width = 3}
+#### color ####
+library(viridis)
+col = plasma(9,alpha = 1, begin=0.9, end = 0, direction = 1)
+scales::show_col(col)
+```
+
+### 1.1.1 Subset eukaryotic virome of *Aedes aegypti* ###
+```{r}
+GP.M1_AA <- subset_samples(GP.M1, mosq_species  == "Ae_aegypti")
+GP.M1_AA <- subset_samples(GP.M1_AA, group.plaque.qPCR.1000. != "")
+GP.M1_AA <- subset_taxa(GP.M1_AA, species != "Chuvirus Mos8Chu0")
+GP.M1_AA <- subset_taxa(GP.M1_AA, species != "Kaiowa virus")
+GP.M1_AA <- subset_taxa(GP.M1_AA, species != "Cumbaru virus")
+GP.M1_AA <- subset_taxa(GP.M1_AA, species != "Guato virus")
+GP.M1_AA <- subset_taxa(GP.M1_AA, species != "Trichoplusia ni TED virus")
+GP.M1_AA <- subset_taxa(GP.M1_AA, species != "Guadeloupe Culex tymo-like virus")
+GP.M1_AA
+
+sample_data(GP.M1_AA)$Treatment <- factor(sample_data(GP.M1_AA)$Treatment, levels = c("AA-sucrose", "AA-blood", "AA-ZIKV"))
+sample_data(GP.M1_AA)$Info1 <- factor(sample_data(GP.M1_AA)$Info1, levels = c("AA-7dpi-sucrose", "AA-7dpi-blood", "AA-7dpi-ZIKV", "AA-21dpi-sucrose","AA-21dpi-blood","AA-21dpi-ZIKV"))
+sample_data(GP.M1_AA)$group.plaque.qPCR.0.body.0. <- factor(sample_data(GP.M1_AA)$group.plaque.qPCR.0.body.0, levels = c("AA-7dpi-sucrose", "AA-7dpi-blood", "AA-7dpi-ZIKV(-/-/-)", "AA-7dpi-ZIKV(-/-/+)", "AA-7dpi-ZIKV(-/+/+)", "AA-21dpi-sucrose", "AA-21dpi-blood", "AA-21dpi-ZIKV(-/-/-)", "AA-21dpi-ZIKV(-/-/+)",  "AA-21dpi-ZIKV(-/+/-)", "AA-21dpi-ZIKV(-/+/+)", "AA-21dpi-ZIKV(+/+/+)"))
+sample_data(GP.M1_AA)$plaque_assay <- factor(sample_data(GP.M1_AA)$plaque_assay,
+                                             levels = c("AA-7dpi-sucrose", "AA-7dpi-blood", "AA-7dpi-ZIKV(-)",
+                                                        "AA-21dpi-sucrose", "AA-21dpi-blood", "AA-21dpi-ZIKV(-)", "AA-21dpi-ZIKV(+)"))
+
+sample_data(GP.M1_AA)$dpi <- factor(sample_data(GP.M1_AA)$dpi, levels = c("7dpi", "21dpi"))
+```
+### 1.1.2 Merge on species level ###
+```{r}
+GP.M1_species <- GP.M1_AA %>% tax_glom(taxrank = "species")
+GP.M1_species
+
+GP.M1_samselect = prune_samples(sample_sums(GP.M1_species) >0, GP.M1_species)
+
+# species
+GP.M1_species_select_0 = prune_taxa(taxa_sums(GP.M1_samselect) > 0, GP.M1_samselect)
+GP.M1_species_select_0
+
+GP.M1_species_select = prune_taxa(taxa_sums(GP.M1_samselect) > 500, GP.M1_samselect)
+GP.M1_species_select
+```
+### 1.1.3 Heatmap on viral species level ###
+```{r}
+#### get table of reads for each viral species ####
+OTU_species <- merge(otu_table(GP.M1_species_select), tax_table(GP.M1_species_select), by=0)
+rownames(OTU_species) <- OTU_species$species
+
+#### order viral species by familiy #### 
+OTU_species$family <- as.character(OTU_species$family)
+OTU_species$family
+OTU_species$family[is.na(OTU_species$family)] <- "unclassified"
+OTU_species_m<- melt(OTU_species)
+OTU_species_m_agg <- aggregate(value~family+species, FUN=sum, data=OTU_species_m)
+OTU_species_m_agg1 <- aggregate(value~family, FUN=sum, data=OTU_species_m)
+family_ord <- OTU_species_m_agg1[order(-OTU_species_m_agg1$value),]$family
+family_ord <- c(family_ord[-3],"unclassified")
+family_ord
+OTU_species_m_agg$index <- 1
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Totiviridae")] <- 2
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Flaviviridae")] <- 3
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Orthomyxoviridae")] <- 4
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Xinmoviridae")] <- 5
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Metaviridae")] <- 6
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Virgaviridae")] <- 7
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Rhabdoviridae")] <- 8
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Reoviridae")] <- 9
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "unclassified")] <- 10
+OTU_species_m_agg <- OTU_species_m_agg[order(OTU_species_m_agg$index, -OTU_species_m_agg$value),]
+OTU_species_m_agg
+species_ord <- as.character(OTU_species_m_agg$species)
+species_ord
+which(species_ord == "Zika virus")
+species_ord_1 <- c("Zika virus", species_ord[-5])
+
+#### transform the table - reads for each viral species ##### 
+rm <- c("Row.names", "superkingdom", "phylum", "class", "order", "family", "genus", "species")
+OTU_species <- OTU_species[,!colnames(OTU_species) %in% rm]
+OTU_species_trans <- log10(OTU_species)
+is.na(OTU_species_trans) <- sapply(OTU_species_trans, is.infinite)
+OTU_species_trans[is.na(OTU_species_trans)]<-0
+df.original <- OTU_species
+df <- OTU_species_trans
+
+#### use meta data for top annotation ####
+meta = read.csv("~/Desktop/mosq_Guad_infection/GIM_metadata_new.csv", header=TRUE, row.names=1, sep=",")
+meta_s = meta[!meta$mosq_species == "",]
+
+meta_AA <- meta[colnames(df),]
+
+#### order sample by ZIKV reads within each group & column annotation  #### 
+meta_AAz <- merge(meta_AA, as.data.frame(t(df)),by=0)
+head(meta_AAz[1:5, 1:5])
+meta_AAz$Treatment <- as.character(meta_AAz$Treatment)
+meta_AAz$Treatment <- factor(meta_AAz$Treatment, levels = c("AA-sucrose", "AA-blood", "AA-ZIKV"))
+meta_AAz$Info1 <- as.character(meta_AAz$Info1)
+meta_AAz$Info1 <- factor(meta_AAz$Info1, levels = c("AA-7dpi-sucrose", "AA-7dpi-blood", "AA-7dpi-ZIKV", "AA-21dpi-sucrose","AA-21dpi-blood","AA-21dpi-ZIKV"))
+
+meta_AAz$qPCR_head._ZIKV_WNV <- log10(meta_AAz$qPCR_head._ZIKV_WNV)
+meta_AAz$qPCR_body._ZIKV_WNV <- log10(meta_AAz$qPCR_body._ZIKV_WNV)
+
+which(colnames(meta_AAz)=="qPCR_head._ZIKV_WNV")
+which(colnames(meta_AAz)=="qPCR_body._ZIKV_WNV")
+
+is.na(meta_AAz[,16:17])<-sapply(meta_AAz[,16:17], is.infinite)
+meta_AAz[,16:17][is.na(meta_AAz[,16:17])]<-0
+
+meta_AAz$group_n1 <- meta_AAz$plaque_assay
+meta_AAz$plaque_assay <- factor(meta_AAz$plaque_assay, levels = c("AA-7dpi-sucrose", "AA-7dpi-blood", "AA-7dpi-ZIKV(-)", "AA-21dpi-sucrose", "AA-21dpi-blood", "AA-21dpi-ZIKV(-)","AA-21dpi-ZIKV(+)"), ordered = TRUE)
+
+meta_AAz_order1 <- meta_AAz[meta_AAz$dpi== "7dpi",][with(meta_AAz[meta_AAz$dpi== "7dpi",], order(plaque_assay, -qPCR_head._ZIKV_WNV, -qPCR_body._ZIKV_WNV, -`Zika virus`, -`Guadeloupe mosquito virus`,-`Phasi Charoen-like phasivirus`, -`Aedes aegypti toti-like virus`,-`Aedes anphevirus`,-`Guadeloupe mosquito quaranja-like virus 1`)), ]
+meta_AAz_order2 <- meta_AAz[meta_AAz$dpi== "21dpi",][with(meta_AAz[meta_AAz$dpi== "21dpi",], order(plaque_assay, -qPCR_head._ZIKV_WNV,  -qPCR_body._ZIKV_WNV, -`Zika virus`, -`Guadeloupe mosquito virus`,-`Phasi Charoen-like phasivirus`,-`Aedes aegypti toti-like virus`,-`Aedes anphevirus`,-`Guadeloupe mosquito quaranja-like virus 1`)), ]
+meta_AAz_order <- rbind(meta_AAz_order1,meta_AAz_order2)
+
+df <- df[,meta_AAz_order$Row.names]
+col_ha = HeatmapAnnotation(qPCR = anno_lines(meta_AAz_order[,16:17], gp = gpar(col = c("black","darkgrey")), height = unit(1.5, "cm"),ylim = c(-0.5,8), axis_param = list(at = c(0,2,4,6,8)),add_points = TRUE, pt_gp = gpar(col = c("black","darkgrey")), pch = c(16, 17)))
+
+#### column split ####
+df_1 <- df
+df_1$ZIKV <- "others"
+df_1$ZIKV[which(rownames(df_1)=="Zika virus")] <- "aZIKV"
+```
+
+``` {r Fig2a, fig.width = 12}
+#### draw figure #####
+heatmap_col_tp2 <- colorRampPalette(brewer.pal(9, "YlGnBu"), space = "rgb")(100)
+Heatmap(as.matrix(df),
+        name = "log10 reads number", #title of legend
+        column_title = "Samples", row_title = "viral species",
+        row_names_gp = gpar(fontsize = 10),
+        column_names_gp = gpar(fontsize = 6),
+        column_title_gp = gpar(fontsize = 12),
+        cluster_rows = F,
+        cluster_columns= F,
+        row_order = species_ord_1,
+        column_labels = meta_AAz_order$mosq,
+        top_annotation = col_ha,
+        col = heatmap_col_tp2,
+        column_split = meta_AAz_order$group_n1,
+        row_split = df_1$ZIKV,
+        border = TRUE,
+        rect_gp = gpar(col = "white", lwd = 0.5))
+
+```
+
+### 1.1.4 Alpha diversity on species level ###
+``` {r Fig2b, fig.width = 8}
+plot_richness <- function (physeq, x = "samples", color = NULL, shape = NULL, 
+                           title = NULL, scales = "free_y", nrow = 1, shsi = NULL, measures = NULL, 
+                           sortby = NULL) 
+{
+  erDF = estimate_richness(physeq, split = TRUE, measures = measures)
+  measures = colnames(erDF)
+  ses = colnames(erDF)[grep("^se\\.", colnames(erDF))]
+  measures = measures[!measures %in% ses]
+  if (!is.null(sample_data(physeq, errorIfNULL = FALSE))) {
+    DF <- data.frame(erDF, sample_data(physeq))
+  }
+  else {
+    DF <- data.frame(erDF)
+  }
+  if (!"samples" %in% colnames(DF)) {
+    DF$samples <- sample_names(physeq)
+  }
+  if (!is.null(x)) {
+    if (x %in% c("sample", "samples", "sample_names", "sample.names")) {
+      x <- "samples"
+    }
+  }
+  else {
+    x <- "samples"
+  }
+  mdf = reshape2::melt(DF, measure.vars = measures)
+  mdf$se <- NA_integer_
+  if (length(ses) > 0) {
+    selabs = ses
+    names(selabs) <- substr(selabs, 4, 100)
+    substr(names(selabs), 1, 1) <- toupper(substr(names(selabs), 
+                                                  1, 1))
+    mdf$wse <- sapply(as.character(mdf$variable), function(i, 
+                                                           selabs) {
+      selabs[i]
+    }, selabs)
+    for (i in 1:nrow(mdf)) {
+      if (!is.na(mdf[i, "wse"])) {
+        mdf[i, "se"] <- mdf[i, (mdf[i, "wse"])]
+      }
+    }
+    mdf <- mdf[, -which(colnames(mdf) %in% c(selabs, "wse"))]
+  }
+  if (!is.null(measures)) {
+    if (any(measures %in% as.character(mdf$variable))) {
+      mdf <- mdf[as.character(mdf$variable) %in% measures, 
+      ]
+    }
+    else {
+      warning("Argument to `measures` not supported. All alpha-diversity measures (should be) included in plot.")
+    }
+  }
+  if (!is.null(shsi)) {
+    warning("shsi no longer supported option in plot_richness. Please use `measures` instead")
+  }
+  if (!is.null(sortby)) {
+    if (!all(sortby %in% levels(mdf$variable))) {
+      warning("`sortby` argument not among `measures`. Ignored.")
+    }
+    if (!is.discrete(mdf[, x])) {
+      warning("`sortby` argument provided, but `x` not a discrete variable. `sortby` is ignored.")
+    }
+    if (all(sortby %in% levels(mdf$variable)) & is.discrete(mdf[, 
+                                                                x])) {
+      wh.sortby = which(mdf$variable %in% sortby)
+      mdf[, x] <- factor(mdf[, x], levels = names(sort(tapply(X = mdf[wh.sortby, 
+                                                                      "value"], INDEX = mdf[wh.sortby, x], mean, na.rm = TRUE, 
+                                                              simplify = TRUE))))
+    }
+  }
+  richness_map = aes_string(x = x, y = "value", colour = color, 
+                            shape = shape)
+  p = ggplot(mdf, richness_map) + geom_boxplot(na.rm = TRUE,outlier.shape = NA)+
+    # geom_point(size=1)
+    geom_jitter(position=position_jitter(0.25), size = 3.5, alpha=0.7)
+  # if (any(!is.na(mdf[, "se"]))) {
+  #   p = p + geom_errorbar(aes(ymax = value + se, ymin = value - 
+  #                               se), width = 0.1)
+  # }
+  # p = p + theme(axis.text.x = element_text(angle = -90, vjust = 0.5, 
+                                           # hjust = 0))
+  p = p + ylab("Alpha Diversity Measure")
+  p = p + facet_wrap(~variable, nrow = nrow, scales = scales)
+  if (!is.null(title)) {
+    p <- p + ggtitle(title)
+  }
+  return(p)
+}
+
+#### on diet ####
+plot_richness(GP.M1_species_select_0, x="Info1",measures=c("Shannon"),col="Treatment", shape = "dpi") + 
+  scale_color_manual(values = rev(c(col[9],col[5],col[2]))) +
+  scale_shape_manual(values = c(16, 17))+
+  ylim(-0.001, 2.5)+
+  theme_bw()+
+  theme(axis.title.x = element_blank(),
+        axis.text.x  = element_text(size = 12, colour = "black", angle = 90, hjust = 1),
+        strip.text.x = element_text(size = 12, colour = "black"),
+        plot.title = element_text(hjust = 0.5, size = 12)) +
+  ggtitle("Alpha diversity of eukaryotic virus in Ae. aegypti")+
+  ylab("Alpha Diversity Value")
+
+erich <- estimate_richness(GP.M1_species_select_0, measures = c("Shannon"))
+pairwise.wilcox.test(erich$Shannon,sample_data(GP.M1_species_select_0)$Info1, p.adjust.method = "BH")
+
+#### on diet and infection status ####
+sample_data(GP.M1_species_select_0)$hd <- as.character(sample_data(GP.M1_species_select_0)$group.plaque.qPCR.1000.body.1000.)
+
+sample_data(GP.M1_species_select_0)$hd[sample_data(GP.M1_species_select_0)$group.plaque.qPCR.1000.body.1000. == "AA-7dpi-ZIKV(-/+/+)"] <- "7dpe-Head(+)/Body(+)"
+sample_data(GP.M1_species_select_0)$hd[sample_data(GP.M1_species_select_0)$group.plaque.qPCR.1000.body.1000. == "AA-7dpi-ZIKV(-/-/+)"] <- "7dpe-Head(-)/Body(+)"
+sample_data(GP.M1_species_select_0)$hd[sample_data(GP.M1_species_select_0)$group.plaque.qPCR.1000.body.1000. == "AA-7dpi-ZIKV(-/-/-)"] <- "7dpe-Head(-)/Body(-)"
+sample_data(GP.M1_species_select_0)$hd[sample_data(GP.M1_species_select_0)$group.plaque.qPCR.1000.body.1000. == "AA-21dpi-ZIKV(+/+/+)"] <- "21dpe-Head(+)/Body(+)"
+sample_data(GP.M1_species_select_0)$hd[sample_data(GP.M1_species_select_0)$group.plaque.qPCR.1000.body.1000. == "AA-21dpi-ZIKV(-/+/+)"] <- "21dpe-Head(+)/Body(+)"
+sample_data(GP.M1_species_select_0)$hd[sample_data(GP.M1_species_select_0)$group.plaque.qPCR.1000.body.1000. == "AA-21dpi-ZIKV(-/-/+)"] <- "21dpe-Head(-)/Body(+)"
+sample_data(GP.M1_species_select_0)$hd[sample_data(GP.M1_species_select_0)$group.plaque.qPCR.1000.body.1000. == "AA-21dpi-ZIKV(-/-/-)"] <- "21dpe-Head(-)/Body(-)"
+
+sample_data(GP.M1_species_select_0)$hd <- factor(sample_data(GP.M1_species_select_0)$hd,
+                                             levels = c("AA-7dpi-sucrose","AA-7dpi-blood","7dpe-Head(-)/Body(-)","7dpe-Head(-)/Body(+)", "7dpe-Head(+)/Body(+)", 
+                                                        "AA-21dpi-sucrose","AA-21dpi-blood","21dpe-Head(-)/Body(-)","21dpe-Head(-)/Body(+)", "21dpe-Head(+)/Body(+)"))
+
+plot_richness(GP.M1_species_select_0, x="hd", measures=c("Shannon"), col="hd", shape = "dpi") + 
+  scale_color_manual(values = rev(c(col[9],col[7],col[5],col[3],col[1],col[9],col[7],col[5],col[3],col[1]))) +
+  scale_shape_manual(values = c(16, 17))+
+  ylim(-0.0001,2.5)+
+  theme_bw()+
+  theme(axis.title.x = element_blank(),
+        axis.text.x  = element_text(size = 12, colour = "black", angle = 90, hjust = 1, vjust=0.5),
+        strip.text.x = element_text(size = 12, colour = "black"),
+        plot.title = element_text(hjust = 0.5, size = 12)) +
+  ggtitle("Alpha diversity of eukaryotic virus in Ae. aegypti")+
+  ylab("Alpha Diversity Value")
+erich <- estimate_richness(GP.M1_species_select_0, measures = c("Shannon"))
+pairwise.wilcox.test(erich$Shannon,sample_data(GP.M1_species_select_0)$hd, p.adjust.method = "BH")
+
+
+```
+### 1.1.5 PCoA on species level ###
+``` {r Fig2c, fig.width = 6}
+#### 7 dpe ##### 
+GP.M1_species_select_0_7dpi = subset_samples(GP.M1_species_select_0, dpi == "7dpi")
+GP.M1_species_select_0_rmZIKV <- subset_taxa(GP.M1_species_select_0_7dpi, !taxa_names(GP.M1_species_select_0_7dpi) == "GIM628_NODE_1_length_10744_cov_806.867254")
+GP.M1_species_select_0_rmZIKV
+sample_variables(GP.M1_species_select_0_rmZIKV)
+
+GP.ord.GP.M1_species_select_0_rmZIKV <- ordinate(GP.M1_species_select_0_rmZIKV, "PCoA", "bray")
+
+plot_ordination(GP.M1_species_select_0_rmZIKV, GP.ord.GP.M1_species_select_0_rmZIKV, type = "samples", color = "Treatment", shape = "group.plaque.qPCR.1000.body.1000.")+
+  theme_bw()+
+  geom_point(size = 4)  + 
+  scale_shape_manual(values=rev(shap[2:6])) +
+  scale_color_manual(values = c(col[2],col[5],col[9]))+
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of eukaryotic virus in Ae. aegypti at 7 dpe excluding ZIKV") +
+  stat_ellipse(type = "norm", linetype = 2,level=0.6,aes(group = Treatment))
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GP.M1_species_select_bray <- phyloseq::distance(GP.M1_species_select_0_rmZIKV, method = "bray")
+# make a data frame from the sample_data
+GP.M1_species_select_sampledf <- data.frame(sample_data(GP.M1_species_select_0_rmZIKV))
+# Adonis test
+adonis(GP.M1_species_select_bray ~ group.plaque.qPCR.1000.body.1000., data = GP.M1_species_select_sampledf)
+```
+``` {r Fig2d, fig.width = 6}
+#### 21 dpe ##### 
+GP.M1_species_select_0_21dpi = subset_samples(GP.M1_species_select_0, dpi == "21dpi")
+GP.M1_species_select_0_rmZIKV <- subset_taxa(GP.M1_species_select_0_21dpi, !taxa_names(GP.M1_species_select_0_21dpi) == "GIM628_NODE_1_length_10744_cov_806.867254")
+GP.M1_species_select_0_rmZIKV
+
+GP.ord.GP.M1_species_select_0_rmZIKV <- ordinate(GP.M1_species_select_0_rmZIKV, "PCoA", "bray")
+
+plot_ordination(GP.M1_species_select_0_rmZIKV, GP.ord.GP.M1_species_select_0_rmZIKV, type = "samples", color = "Treatment", shape = "group.plaque.qPCR.1000.body.1000.")+
+  theme_bw()+
+  geom_point(size = 4)  + 
+  scale_shape_manual(values=c(shap[1:4],shap[6],shap[5])) +
+  scale_color_manual(values = c(col[2],col[5],col[9]))+
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of eukaryotic virus in Ae. aegypti at 21 dpe excluding ZIKV")
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GP.M1_species_select_bray <- phyloseq::distance(GP.M1_species_select_0_rmZIKV, method = "bray")
+# make a data frame from the sample_data
+GP.M1_species_select_sampledf <- data.frame(sample_data(GP.M1_species_select_0_rmZIKV))
+# Adonis test
+adonis(GP.M1_species_select_bray ~ Treatment, data = GP.M1_species_select_sampledf)
+
+```
+
+## 1.2 Eukaryotic virome of *Culex quinquefasciatus* ##
+### 1.2.1 Subset eukaryotic virome of *Culex quinquefasciatus* ###
+``` {r}
+GP.M1_CQ <- subset_samples(GP.M1, mosq_species  == "Cx_quinquefasciatus")
+GP.M1_CQ <- subset_taxa(GP.M1_CQ, species != "Kaiowa virus")
+GP.M1_CQ
+```
+### 1.2.2 merge on species level ###
+``` {r}
+GP.M1_species <- GP.M1_CQ %>%
+  tax_glom(taxrank = "species")
+GP.M1_species
+
+GP.M1_samselect = prune_samples(sample_sums(GP.M1_species) > 0, GP.M1_species)
+GP.M1_samselect                                
+GP.M1_species_select_0 = prune_taxa(taxa_sums(GP.M1_samselect) > 0, GP.M1_samselect)
+GP.M1_species_select_0
+GP.M1_species_select_0 <- subset_taxa(GP.M1_species_select_0, species != "Aedes aegypti totivirus")
+GP.M1_species_select_0
+
+GP.M1_species_select = prune_taxa(taxa_sums(GP.M1_samselect) > 500, GP.M1_samselect)
+GP.M1_species_select <- subset_taxa(GP.M1_species_select, species != "Aedes aegypti totivirus")
+GP.M1_species_select
+```
+### 1.2.3 Heatmap on viral species level ###
+``` {r}
+#### get table of reads for each viral species ####
+OTU_species <- merge(otu_table(GP.M1_species_select), tax_table(GP.M1_species_select), by=0)
+rownames(OTU_species) <- OTU_species$species
+rownames(OTU_species)
+
+#### order viral species by familiy #### 
+OTU_species$family <- as.character(OTU_species$family)
+OTU_species$family
+OTU_species$family[is.na(OTU_species$family)] <- "unclassified"
+OTU_species_m<- melt(OTU_species)
+OTU_species_m_agg <- aggregate(value~family+species, FUN=sum, data=OTU_species_m)
+OTU_species_m_agg1 <- aggregate(value~family, FUN=sum, data=OTU_species_m)
+family_ord <- OTU_species_m_agg1[order(-OTU_species_m_agg1$value),]$family
+family_ord <- c(family_ord[-1],"unclassified")
+family_ord
+OTU_species_m_agg$index <- 1
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Phenuiviridae")] <- 2
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Metaviridae")] <- 3
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Circoviridae")] <- 4
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Picobirnaviridae")] <- 5
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Iridoviridae")] <- 6
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "Bacilladnaviridae")] <- 7
+OTU_species_m_agg$index[which(OTU_species_m_agg$family == "unclassified")] <- 8
+
+OTU_species_m_agg <- OTU_species_m_agg[order(OTU_species_m_agg$index, -OTU_species_m_agg$value),]
+OTU_species_m_agg
+
+species_ord <- as.character(OTU_species_m_agg$species)
+species_ord
+which(species_ord == "West Nile virus")
+species_ord_1 <- c("West Nile virus", species_ord[-1])
+species_ord_1
+
+#### transform the table - reads for each viral species ##### 
+rm <- c("Row.names", "superkingdom", "phylum", "class", "order", "family", "genus", "species")
+OTU_species <- OTU_species[,!colnames(OTU_species) %in% rm]
+
+#log
+OTU_species_trans <- log10(OTU_species)
+is.na(OTU_species_trans) <- sapply(OTU_species_trans, is.infinite)
+OTU_species_trans[is.na(OTU_species_trans)]<-0
+df.original <- OTU_species
+df <- OTU_species_trans
+
+#### use meta data for top annotation #####
+meta = read.csv("~/Desktop/mosq_Guad_infection/GIM_metadata_new.csv", header=TRUE, row.names=1, sep=",")
+meta_s = meta[!meta$mosq_species == "",]
+meta_CQ <- meta_s[colnames(df),]
+
+#### order sample by WNV reads within each group & column annotation  #### 
+meta_CQz <- merge(meta_CQ, as.data.frame(t(df)),by=0)
+meta_CQz$qPCR_body._ZIKV_WNV <- log10(meta_CQz$qPCR_body._ZIKV_WNV)
+
+which(colnames(meta_CQz)=="qPCR_body._ZIKV_WNV")
+
+is.na(meta_CQz[,17])<-sapply(meta_CQz[,17], is.infinite)
+meta_CQz[,17][is.na(meta_CQz[,17])]<-0
+meta_CQz[,17]
+
+meta_CQz$plaque_assay
+meta_CQz$plaque_assay <- factor(meta_CQz$plaque_assay,
+                                levels = c("CQ-7dpi-sucrose", "CQ-7dpi-blood", "7dpi-WNV(-)", "7dpi-WNV(+)", "CQ-14dpi-sucrose", "CQ-14dpi-blood", "14dpi-WNV(-)", "14dpi-WNV(+)"))
+
+meta_CQz_order1 <- meta_CQz[meta_CQz$dpi== "7dpi",][with(meta_CQz[meta_CQz$dpi== "7dpi",], 
+                                                         order(plaque_assay, -qPCR_body._ZIKV_WNV, -`West Nile virus`, -`Guadeloupe Culex tymo-like virus`,
+                                                               -`Wenzhou sobemo-like virus 3`, -`Phasi Charoen-like phasivirus`)), ]
+meta_CQz_order2 <- meta_CQz[meta_CQz$dpi== "14dpi",][with(meta_CQz[meta_CQz$dpi== "14dpi",], 
+                                                          order(plaque_assay, -qPCR_body._ZIKV_WNV, -`West Nile virus`, -`Guadeloupe Culex tymo-like virus`,
+                                                                -`Wenzhou sobemo-like virus 3`, -`Phasi Charoen-like phasivirus`)), ]
+meta_CQz_order <- rbind(meta_CQz_order1,meta_CQz_order2)
+
+meta_CQz$Row.names
+meta_CQz_order$Row.names
+df <- df[,meta_CQz_order$Row.names]
+col_ha = HeatmapAnnotation(qPCR = anno_lines(meta_CQz_order[,17], gp = gpar(col = c("darkgrey")), 
+                                             height = unit(1.5, "cm"),ylim = c(-0.5,6), axis_param = list(at = c(0,2,4,6)),
+                                             add_points = TRUE, pt_gp = gpar(col = c("darkgrey")), pch = c(17)))
+
+meta_CQz_order$group_n1 
+meta_CQz_order$plaque_assay
+
+#### column split ####
+df_1 <- df
+df_1$WNV <- "others"
+df_1$WNV[which(rownames(df_1)=="West Nile virus")] <- "aWNV"
+
+```
+``` {r Fig3, fig.width = 12}
+#### draw figure #####
+heatmap_col_tp2 <- colorRampPalette(brewer.pal(9, "YlGnBu"), space = "rgb")(100)
+Heatmap(as.matrix(df),
+        name = "log10 reads number", #title of legend
+        column_title = "Samples", row_title = "viral species",
+        row_names_gp = gpar(fontsize = 10),
+        column_names_gp = gpar(fontsize = 6),
+        column_title_gp = gpar(fontsize = 12),
+        cluster_rows = F,
+        cluster_columns= F,
+        row_order = species_ord_1,
+        column_labels = meta_CQz_order$mosq,
+        top_annotation = col_ha,
+        col = heatmap_col_tp2,
+        column_split = meta_CQz_order$plaque_assay,
+        row_split = df_1$WNV,
+        border = TRUE,
+        rect_gp = gpar(col = "white", lwd = 0.5)) 
+
+```
+
+
+# 2 qRT-PCR analysis #
+``` {r}
+copies = read.table("~/Desktop/mosq_Guad_infection/qRT-PCR/qRTPCR_copies.csv", header=TRUE, dec=".", sep=",")
+colnames(copies)
+
+#### log transform ####
+copies_log <- copies
+copies_log <- cbind(copies[,1:7], log10(copies[,8:15]),copies[,16:23])
+is.na(copies_log) <- sapply(copies_log, is.infinite)
+copies_log[is.na(copies_log)] <- 0
+colnames(copies_log)
+
+########### all core viruses #########
+copies_log$plaque_assay <- gsub("CQ-14dpi-","CQ-",copies_log$plaque_assay,fixed = T)
+copies_log$plaque_assay <- gsub("CQ-7dpi-","CQ-",copies_log$plaque_assay,fixed = T)
+copies_log$plaque_assay <- gsub("14dpi-","CQ-",copies_log$plaque_assay,fixed = T)
+copies_log$plaque_assay <- gsub("7dpi-","CQ-",copies_log$plaque_assay,fixed = T)
+copies_log$plaque_assay <- factor(copies_log$plaque_assay, levels = c("AA-sucrose", "AA-blood", "AA-ZIKV(-)", "AA-ZIKV(+)", 
+                                                                      "CQ-sucrose", "CQ-blood", "CQ-WNV(-)", "CQ-WNV(+)"))
+levels(copies_log$plaque_assay)
+
+copies_log$PCLPV_copies[copies_log$mosq_species == "Cx_quinquefasciatus"] <- NA
+copies_log$GMV_copies[copies_log$mosq_species == "Cx_quinquefasciatus"] <- NA
+copies_log$ATV_copies[copies_log$mosq_species == "Cx_quinquefasciatus"] <- NA
+copies_log$AANV_copies[copies_log$mosq_species == "Cx_quinquefasciatus"] <- NA
+copies_log$GCTLV_copies[copies_log$mosq_species == "Ae_aegypti"] <- NA
+copies_log$WSLV3_copies[copies_log$mosq_species == "Ae_aegypti"] <- NA
+
+copies_log_m <- melt(copies_log)
+copies_log_m_sub <- copies_log_m[copies_log_m$variable %in% c("PCLPV_copies", "GMV_copies", "ATV_copies","AANV_copies","GCTLV_copies", "WSLV3_copies"),]
+copies_log_m_sub <- na.omit(copies_log_m_sub)
+
+copies_log_m_sub$variable <- factor(copies_log_m_sub$variable, levels=c("GMV_copies", "PCLPV_copies","ATV_copies","AANV_copies","GCTLV_copies", "WSLV3_copies"))
+levels(copies_log_m_sub$variable)
+
+copies_log_m_sub$virus[copies_log_m_sub$variable == "GMV_copies"] <- "Guadeloupe mosquito virus"
+copies_log_m_sub$virus[copies_log_m_sub$variable == "PCLPV_copies"] <- "Phasi Charoen−like phasivirus"
+copies_log_m_sub$virus[copies_log_m_sub$variable == "ATV_copies"] <- "Aedes aegypti totivirus"
+copies_log_m_sub$virus[copies_log_m_sub$variable == "AANV_copies"] <- "Aedes anphevirus"
+copies_log_m_sub$virus[copies_log_m_sub$variable == "GCTLV_copies"] <- "Guadeloupe Culex tymo−like virus"
+copies_log_m_sub$virus[copies_log_m_sub$variable == "WSLV3_copies"] <- "Wenzhou sobemo−like virus 3"
+copies_log_m_sub$virus <- factor(copies_log_m_sub$virus, levels=c("Guadeloupe mosquito virus", "Phasi Charoen−like phasivirus","Aedes aegypti totivirus",
+                                                                  "Aedes anphevirus","Guadeloupe Culex tymo−like virus", "Wenzhou sobemo−like virus 3"))
+
+copies_log_m_sub$dpi <- gsub("dpi", "dpe", copies_log_m_sub$dpi)
+copies_log_m_sub$dpi<- factor(copies_log_m_sub$dpi, levels = c("7dpe", "21dpe", "14dpe"))
+
+copies_log_m_sub_rmATV21 <- copies_log_m_sub[!(copies_log_m_sub$dpi=="21dpe"&copies_log_m_sub$variable=="ATV_copies"), ] 
+copies_log_m_sub_rmGCTLV7 <- copies_log_m_sub_rmATV21[!(copies_log_m_sub_rmATV21$dpi=="7dpe"&copies_log_m_sub_rmATV21$variable=="GCTLV_copies"), ] 
+copies_log_m_sub_rmWSLV37 <- copies_log_m_sub_rmGCTLV7[!(copies_log_m_sub_rmGCTLV7$dpi=="7dpe"&copies_log_m_sub_rmGCTLV7$variable=="WSLV3_copies"), ] 
+
+col = plasma(8,alpha = 1, begin=0.9, end = 0, direction = 1)
+```
+``` {r Fig4, fig.width = 12}
+ggplot(copies_log_m_sub_rmWSLV37, aes(x=plaque_assay, y=value, col=plaque_assay)) +
+  geom_boxplot(na.rm = TRUE,outlier.shape = NA) + geom_jitter(shape=19, position=position_jitter(0.25), size = 2.2, alpha=0.7)+
+  theme_bw()+
+  facet_wrap(~ virus+part, scales="free", ncol = 6)+
+  scale_color_manual(values = col) +
+  theme(legend.position = "right",
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(size=10), axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        strip.text.x = element_text(size = 12, colour = "black"),
+        plot.title = element_text(hjust = 0.5, size = 12))+
+  ggtitle("Viral genome copies determined by qRT-PCR")+
+  ylab("log10 copies")+
+  scale_y_continuous(limits = c(-0.01,9), breaks=seq(0, 9, by = 1))
+```
+``` {r FigS2, fig.width = 10, fig.height=20}
+copies_log_m_sub_rmATV7 <- copies_log_m_sub[!(copies_log_m_sub$dpi=="7dpe"&copies_log_m_sub$variable=="ATV_copies"), ] 
+copies_log_m_sub_rmGCTLV21 <- copies_log_m_sub_rmATV7[!(copies_log_m_sub_rmATV7$dpi=="14dpe"&copies_log_m_sub_rmATV7$variable=="GCTLV_copies"), ] 
+copies_log_m_sub_rmWSLV321 <- copies_log_m_sub_rmGCTLV21[!(copies_log_m_sub_rmGCTLV21$dpi=="14dpe"&copies_log_m_sub_rmGCTLV21$variable=="WSLV3_copies"), ] 
+
+copies_log_m_sub_ATV <- copies_log_m_sub[copies_log_m_sub$variable=="ATV_copies", ]
+copies_log_m_sub_ATV$dpi <- "7dpe+21dpe"
+copies_log_m_sub_GCTLV <- copies_log_m_sub[copies_log_m_sub$variable=="GCTLV_copies", ]
+copies_log_m_sub_GCTLV$dpi <- "7dpe+14dpe"
+copies_log_m_sub_WSLV3 <- copies_log_m_sub[copies_log_m_sub$variable=="WSLV3_copies", ]
+copies_log_m_sub_WSLV3$dpi <- "7dpe+14dpe"
+
+copies_log_m_sub_new <- rbind(copies_log_m_sub_rmWSLV321,copies_log_m_sub_ATV)
+copies_log_m_sub_new <- rbind(copies_log_m_sub_new,copies_log_m_sub_GCTLV)
+copies_log_m_sub_new <- rbind(copies_log_m_sub_new,copies_log_m_sub_WSLV3)
+
+ggplot(copies_log_m_sub_new, aes(x=plaque_assay, y=value, col=plaque_assay)) +
+  geom_boxplot(na.rm = TRUE,outlier.shape = NA) + geom_jitter(shape=19, position=position_jitter(0.25), size = 2.2, alpha=0.7)+
+  theme_bw()+
+  facet_wrap(~ virus+dpi+part, scales="free", ncol = 4)+
+  scale_color_manual(values = col) +
+  theme(legend.position = "right",
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(size=10), axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        strip.text.x = element_text(size = 12, colour = "black"),
+        plot.title = element_text(hjust = 0.5, size = 12))+
+  ggtitle("Viral genome copies determined by qRT-PCR")+
+  ylab("log10 copies")+
+  scale_y_continuous(limits = c(-0.01,9), breaks=seq(0, 9, by = 1))
+
+```
+``` {r}
+########## pairwise.wilcox.test #######
+#### GMV Guadeloupe mosquito virus
+pairwise.wilcox.test(copies_log$GMV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$GMV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$GMV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$GMV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+
+#### PCLPV Phasi Charoen−like phasivirus 
+pairwise.wilcox.test(copies_log$PCLPV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$PCLPV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$PCLPV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$PCLPV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+
+#### ATV Aedes aegypti totivirus 
+pairwise.wilcox.test(copies_log$ATV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$ATV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$ATV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$ATV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+
+#### AANV Aedes anphevirus
+pairwise.wilcox.test(copies_log$AANV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$AANV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$AANV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$AANV_copies[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Ae_aegypti" & copies_log$dpi=="21dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+
+#### GCTLV Guadeloupe Culex tymo−like virus
+pairwise.wilcox.test(copies_log$GCTLV_copies[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$GCTLV_copies[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$GCTLV_copies[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="14dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="14dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$GCTLV_copies[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="14dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="14dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+
+#### WSLV3 Wenzhou sobemo−like virus 3
+pairwise.wilcox.test(copies_log$WSLV3_copies[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="7dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$WSLV3_copies[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="7dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$WSLV3_copies[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="14dpi" & copies_log$part=="body"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="14dpi" & copies_log$part=="body"], 
+                     p.adjust.method = "BH")
+pairwise.wilcox.test(copies_log$WSLV3_copies[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="14dpi" & copies_log$part=="head"], 
+                     copies_log$plaque_assay[copies_log$mosq_species=="Cx_quinquefasciatus" & copies_log$dpi=="14dpi" & copies_log$part=="head"], 
+                     p.adjust.method = "BH")
+
+```
+# 3 16S rRNA analysis #
+``` {r}
+#### load phyloseq project ####
+GIMBac_decont <- readRDS("~/Desktop/mosq_Guad_infection/16s_rRNA/GIM_Bacteriome_decont_SLV132.rds")
+GIMBac_decont
+col_6_Ae <-c("#8D634A", "#CCC591", "#84A0A5", "#972D15", "#C27D38", "#1D769C") 
+col_6_Cq <-c("#7A7358",  "#85A789", "#C6CDF7","#29211F", "#376138","#7294D4")
+```
+
+## 3.1 Bacteriome of *Aedes aegypti* ##
+``` {r}
+GIMBac.Aa <- subset_samples(GIMBac_decont, mosq_species == "Ae_aegypti")
+GIMBac.Aa <- subset_taxa(GIMBac.Aa, taxa_sums(GIMBac.Aa) > 0 )
+GIMBac.Aa
+```
+
+### 3.1.1 Genera proportion per sample ###
+``` {r Fig5a, fig.width = 13, fig.height= 8}
+#### collape on Genus #### 
+GIMBac.Aa.Genus <- GIMBac.Aa %>% #raw counts
+  tax_glom(taxrank = "Genus")
+
+GIMBac.Aa.Genus.per <- GIMBac.Aa.Genus  %>% 
+  transform_sample_counts(function(x) {100*(x/sum(x))} ) %>%  
+  psmelt()
+
+GIMBac.Aa.Genus.per$group.plaque.qPCR.1000.body.1000.[which(is.na(GIMBac.Aa.Genus.per$group.plaque.qPCR.1000.body.1000.))] <- "NC"
+levels(GIMBac.Aa.Genus.per$plaque_assay)
+
+#### 把一些低丰度的anno改成"others" #### 
+AaBac_agg <- aggregate(Abundance ~ mosq + plaque_assay + Genus, FUN=sum, data=GIMBac.Aa.Genus.per)
+AaBac_wide <- reshape2::dcast(AaBac_agg, mosq + plaque_assay ~ Genus, value.var = 'Abundance')
+AaBac_wide <- AaBac_wide[order(-AaBac_wide$g_Asaia),]
+sample_order <- AaBac_wide$mosq
+
+AaBac_name_10 <- colnames(AaBac_wide[,3:ncol(AaBac_wide)][,colSums(AaBac_wide[,3:ncol(AaBac_wide)])<10])
+
+nc <- which(colnames(GIMBac.Aa.Genus.per) == "Genus")
+nc
+GIMBac.Aa.Genus.per[GIMBac.Aa.Genus.per$Genus %in% AaBac_name_10, nc] <- "Others"
+
+GIMBac.Aa.Genus.per$Genus <- as.factor(GIMBac.Aa.Genus.per$Genus)
+levels(GIMBac.Aa.Genus.per$Genus)
+
+###--- repeat ---###
+AaBac_agg <- aggregate(Abundance ~ mosq + plaque_assay + Genus, FUN=sum, data=GIMBac.Aa.Genus.per)
+AaBac_wide <- reshape2::dcast(AaBac_agg, mosq + plaque_assay ~ Genus, value.var = 'Abundance')
+as.data.frame(sort(colSums(AaBac_wide[,3:ncol(AaBac_wide)]) , decreasing=T))
+order <- rev(rownames(as.data.frame(sort(colSums(AaBac_wide[,3:ncol(AaBac_wide)]) , decreasing=T))))
+which(order == "Others" | order == "uc_f_Enterobacteriaceae")
+order.1 <- c("Others", "uc_f_Enterobacteriaceae", order[-which(order == "Others" | order == "uc_f_Enterobacteriaceae")])
+order.1
+
+head(AaBac_agg)
+AaBac_agg$Genus <- factor(AaBac_agg$Genus, levels = order.1)
+AaBac_agg$plaque_assay <- factor(AaBac_agg$plaque_assay, 
+                                 levels = c("AA-7dpi-sucrose", "AA-7dpi-blood", "AA-7dpi-ZIKV(-)","AA-21dpi-sucrose", "AA-21dpi-blood", "AA-21dpi-ZIKV(-)", "AA-21dpi-ZIKV(+)"))
+AaBac_agg$mosq <- factor(AaBac_agg$mosq, levels = sample_order)
+
+col <- c("#CBD588", "#5F7FC7", "orange","#DA5724", "#508578", "#CD9BCD",
+         "#AD6F3B", "#673770","#D14285", "#652926", "#C84248", 
+         "#8569D5", "#5E738F","#D1A33D", "#8A7C64", "#599861","grey")
+
+ggplot(AaBac_agg, aes(x = mosq, y = Abundance, fill = Genus)) + 
+  facet_grid(~ plaque_assay,scales="free",space = "free") +  #### Lay out panels in a grid
+  geom_bar(stat = "identity")+ 
+  scale_fill_manual(values = rev(col)) +
+  theme_bw()+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 8, angle = 90, vjust = 0.5,hjust = 1),
+        axis.title.y = element_text(size = 12,vjust = 0.5),
+        plot.margin = unit(c(1, 1, 1, 1), "cm"),
+        strip.text.x = element_text(size =8, colour = "black"),
+        plot.title = element_text(hjust = 0.5))
+
+```
+
+### 3.1.2 Alpha diversity on genus level ###
+``` {r Fig5b, fig.width = 6, fig.height= 7}
+#### rarefy counts ####
+sort(rowSums(otu_table(GIMBac.Aa)))
+
+set.seed(100)
+GIMBac.Aa_rare = rarefy_even_depth(GIMBac.Aa, sample.size = 11428, replace=FALSE, trimOTUs = F)
+
+GIMBac.Aa_rm = prune_samples(sample_sums(GIMBac.Aa)<11428, GIMBac.Aa)
+GIMBac.Aa_rm
+
+GIMBac.Aa_rareall <- merge_phyloseq(GIMBac.Aa_rare, GIMBac.Aa_rm)
+sort(rowSums(otu_table(GIMBac.Aa_rareall)))
+
+#### collape on Genus #### 
+GIMBac.Aa_rare.Genus <- GIMBac.Aa_rareall %>% #raw counts
+  tax_glom(taxrank = "Genus")
+
+#### alpha diversity plot ####
+plot_richness <- function (physeq, x = "samples", color = NULL, shape = NULL,
+                           title = NULL, scales = "free_y", nrow = 1, shsi = NULL, measures = NULL,
+                           sortby = NULL)
+{
+  erDF = estimate_richness(physeq, split = TRUE, measures = measures)
+  measures = colnames(erDF)
+  ses = colnames(erDF)[grep("^se\\.", colnames(erDF))]
+  measures = measures[!measures %in% ses]
+  if (!is.null(sample_data(physeq, errorIfNULL = FALSE))) {
+    DF <- data.frame(erDF, sample_data(physeq))
+  }
+  else {
+    DF <- data.frame(erDF)
+  }
+  if (!"samples" %in% colnames(DF)) {
+    DF$samples <- sample_names(physeq)
+  }
+  if (!is.null(x)) {
+    if (x %in% c("sample", "samples", "sample_names", "sample.names")) {
+      x <- "samples"
+    }
+  }
+  else {
+    x <- "samples"
+  }
+  mdf = reshape2::melt(DF, measure.vars = measures)
+  mdf$se <- NA_integer_
+  if (length(ses) > 0) {
+    selabs = ses
+    names(selabs) <- substr(selabs, 4, 100)
+    substr(names(selabs), 1, 1) <- toupper(substr(names(selabs),
+                                                  1, 1))
+    mdf$wse <- sapply(as.character(mdf$variable), function(i,
+                                                           selabs) {
+      selabs[i]
+    }, selabs)
+    for (i in 1:nrow(mdf)) {
+      if (!is.na(mdf[i, "wse"])) {
+        mdf[i, "se"] <- mdf[i, (mdf[i, "wse"])]
+      }
+    }
+    mdf <- mdf[, -which(colnames(mdf) %in% c(selabs, "wse"))]
+  }
+  if (!is.null(measures)) {
+    if (any(measures %in% as.character(mdf$variable))) {
+      mdf <- mdf[as.character(mdf$variable) %in% measures,
+      ]
+    }
+    else {
+      warning("Argument to `measures` not supported. All alpha-diversity measures (should be) included in plot.")
+    }
+  }
+  if (!is.null(shsi)) {
+    warning("shsi no longer supported option in plot_richness. Please use `measures` instead")
+  }
+  if (!is.null(sortby)) {
+    if (!all(sortby %in% levels(mdf$variable))) {
+      warning("`sortby` argument not among `measures`. Ignored.")
+    }
+    if (!is.discrete(mdf[, x])) {
+      warning("`sortby` argument provided, but `x` not a discrete variable. `sortby` is ignored.")
+    }
+    if (all(sortby %in% levels(mdf$variable)) & is.discrete(mdf[,
+                                                                x])) {
+      wh.sortby = which(mdf$variable %in% sortby)
+      mdf[, x] <- factor(mdf[, x], levels = names(sort(tapply(X = mdf[wh.sortby,
+                                                                      "value"], INDEX = mdf[wh.sortby, x], mean, na.rm = TRUE,
+                                                              simplify = TRUE))))
+    }
+  }
+  richness_map = aes_string(x = x, y = "value", colour = color,
+                            shape = shape)
+  p = ggplot(mdf, richness_map) + geom_boxplot(na.rm = TRUE,outlier.shape = NA)+geom_jitter(shape=19, position=position_jitter(0.25), size = 2.2, alpha=0.7)
+  # if (any(!is.na(mdf[, "se"]))) {
+  #   p = p + geom_errorbar(aes(ymax = value + se, ymin = value -
+  #                               se), width = 0.1)
+  # }
+  p = p + theme(axis.text.x = element_text(angle = -90, vjust = 0.5,
+                                           hjust = 0))
+  p = p + ylab("Alpha Diversity Measure")
+  p = p + facet_wrap(~variable, nrow = nrow, scales = scales)
+  if (!is.null(title)) {
+    p <- p + ggtitle(title)
+  }
+  return(p)
+}
+
+sample_data(GIMBac.Aa_rare.Genus)$Info1 <- factor(sample_data(GIMBac.Aa_rare.Genus)$Info1, levels = c("AA-7dpi-sucrose", "AA-7dpi-blood", "AA-7dpi-ZIKV", 
+                                                                                                      "AA-21dpi-sucrose","AA-21dpi-blood", "AA-21dpi-ZIKV"))
+sample_data(GIMBac.Aa_rare.Genus)$Treatment <- factor(sample_data(GIMBac.Aa_rare.Genus)$Treatment, levels = c("AA-sucrose", "AA-blood", "AA-ZIKV"))
+sample_data(GIMBac.Aa_rare.Genus)$dpi <- factor(sample_data(GIMBac.Aa_rare.Genus)$dpi, levels = c("7dpi", "21dpi"))
+GIMBac.Aa_rare.Genus.7d = subset_samples(GIMBac.Aa_rare.Genus, dpi == "7dpi")
+GIMBac.Aa_rare.Genus.21d = subset_samples(GIMBac.Aa_rare.Genus, dpi == "21dpi")
+
+plot_richness(GIMBac.Aa_rare.Genus, x="Info1",measures=c("Shannon"),col="Treatment", shape = "dpi") +
+  scale_color_manual(values = rev(col_6_Ae[c(4:6)])) +
+  theme_bw() +
+  ylim(-0.001,1.9)+
+  theme(axis.title.x = element_blank(),
+        axis.text.x  = element_text(size = 12, colour = "black", angle = 90, hjust = 1, vjust=0.5),
+        strip.text.x = element_text(size = 12, colour = "black"),
+        plot.title = element_text(hjust = 0.5, size = 12)) +
+  ggtitle("Alpha diversity of bacteriome in Ae. aegypti on genus level")+
+  ylab("Alpha Diversity Value")
+
+erich <- estimate_richness(GIMBac.Aa_rare.Genus, measures = c("Shannon"))
+pairwise.wilcox.test(erich$Shannon,sample_data(GIMBac.Aa_rare.Genus)$Info1, p.adjust.method = "BH")
+
+```
+
+### 3.1.3 Beta diversity on genus level ###
+``` {r}
+GIMBac.Aa_rare.GenusS <- subset_samples(GIMBac.Aa_rare.Genus, group.plaque.qPCR.1000.body.1000. != "")
+sample_data(GIMBac.Aa_rare.GenusS)$group.plaque.qPCR.1000.body.1000. <- factor(sample_data(GIMBac.Aa_rare.GenusS)$group.plaque.qPCR.1000.body.1000.,
+                                                                               levels =c("AA-7dpi-ZIKV(-/+/+)", "AA-7dpi-ZIKV(-/-/+)", "AA-7dpi-ZIKV(-/-/-)", 
+                                                                                         "AA-7dpi-blood", "AA-7dpi-sucrose", "AA-21dpi-ZIKV(+/+/+)", 
+                                                                                         "AA-21dpi-ZIKV(-/+/+)", "AA-21dpi-ZIKV(-/-/+)", "AA-21dpi-ZIKV(-/-/-)",
+                                                                                         "AA-21dpi-blood", "AA-21dpi-sucrose"))
+GIMBac.Aa_rare.Genus.7dS = subset_samples(GIMBac.Aa_rare.GenusS, dpi == "7dpi")
+GIMBac.Aa_rare.Genus.21dS = subset_samples(GIMBac.Aa_rare.GenusS, dpi == "21dpi")
+```
+``` {r Fig5c, fig.width = 7, fig.height= 6}
+#### 7dpi ##### 
+levels(sample_data(GIMBac.Aa_rare.Genus.7dS)$group.plaque.qPCR.1000.body.1000.)
+levels(sample_data(GIMBac.Aa_rare.Genus.7dS)$Treatment)
+
+GP.ord.GIMBac.Aa_rare.Genus.7d <- ordinate(GIMBac.Aa_rare.Genus.7dS, "PCoA", "bray")
+
+plot_ordination(GIMBac.Aa_rare.Genus.7dS, GP.ord.GIMBac.Aa_rare.Genus.7d, type = "samples", color = "Treatment", shape = "group.plaque.qPCR.1000.body.1000.")+
+  theme_bw()+
+  geom_point(size = 4)  + 
+  scale_color_manual(values = col_6_Ae[c(4:6)])+
+  scale_shape_manual(values=rev(shap[2:6])) +
+  theme(legend.title=element_blank(),
+        # legend.text= element_text(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of bacteriome in Ae. aegypti at 7 dpe") +
+  stat_ellipse(type = "norm", linetype = 2,level=0.6,aes(group = Treatment))
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GIMBac.Aa_rare.Genus.7dS_bray <- phyloseq::distance(GIMBac.Aa_rare.Genus.7dS, method = "bray")
+# make a data frame from the sample_data
+GIMBac.Aa_rare.Genus.7dS_sampledf <- data.frame(sample_data(GIMBac.Aa_rare.Genus.7dS))
+# Adonis test
+adonis(GIMBac.Aa_rare.Genus.7dS_bray ~ Treatment, data = GIMBac.Aa_rare.Genus.7dS_sampledf)
+```
+``` {r Fig5d, fig.width = 7, fig.height= 6}
+#### 21dpi ##### 
+levels(sample_data(GIMBac.Aa_rare.Genus.21dS)$group.plaque.qPCR.1000.body.1000.)
+levels(sample_data(GIMBac.Aa_rare.Genus.21dS)$Treatment)
+
+GP.ord.GIMBac.Aa_rare.Genus.21d <- ordinate(GIMBac.Aa_rare.Genus.21dS, "PCoA", "bray")
+
+plot_ordination(GIMBac.Aa_rare.Genus.21dS, GP.ord.GIMBac.Aa_rare.Genus.21d, type = "samples", color = "Treatment", shape = "group.plaque.qPCR.1000.body.1000.")+
+  theme_bw()+
+  geom_point(size = 4)  + 
+  scale_color_manual(values = col_6_Ae[c(4:6)])+
+  scale_shape_manual(values= c(shap[1:4],shap[6],shap[5])) +
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of bacteriome in Ae. aegypti at 21 dpe")
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GIMBac.Aa_rare.Genus.21dS_bray <- phyloseq::distance(GIMBac.Aa_rare.Genus.21dS, method = "bray")
+# make a data frame from the sample_data
+GIMBac.Aa_rare.Genus.21dS_sampledf <- data.frame(sample_data(GIMBac.Aa_rare.Genus.21dS))
+# Adonis test
+adonis(GIMBac.Aa_rare.Genus.21dS_bray ~ Treatment, data = GIMBac.Aa_rare.Genus.21dS_sampledf)
+
+```
+
+## 3.2 Bacteriome of *Culex quinquefasciatus* ##
+``` {r}
+GIMBac.Cq <- subset_samples(GIMBac_decont, mosq_species == "Cx_quinquefasciatus")
+GIMBac.Cq <- subset_taxa(GIMBac.Cq, taxa_sums(GIMBac.Cq) > 0 )
+GIMBac.Cq
+
+sample_data(GIMBac.Cq)$group.plaque.qPCR.0.body.0. <- factor(sample_data(GIMBac.Cq)$group.plaque.qPCR.0.body.0., 
+                                                             levels = c("CQ-7dpi-sucrose","CQ-7dpi-blood","7dpi-WNV(-/-)", "7dpi-WNV(-/+)", "7dpi-WNV(+/)", 
+                                                                        "CQ-14dpi-sucrose","CQ-14dpi-blood","14dpi-WNV(-/-)","14dpi-WNV(-/+)","14dpi-WNV(+/)"))
+sample_data(GIMBac.Cq)$Info1 <- factor(sample_data(GIMBac.Cq)$Info1, 
+                                       levels = c("CQ-7dpi-sucrose", "CQ-7dpi-blood", "CQ-7dpi-WNV", "CQ-14dpi-sucrose", "CQ-14dpi-blood", "CQ-14dpi-WNV"))
+sample_data(GIMBac.Cq)$Treatment <- factor(sample_data(GIMBac.Cq)$Treatment, levels = c("CQ-sucrose", "CQ-blood", "CQ-WNV"))
+
+```
+
+### 3.2.1 Genera proportion per sample ###
+``` {r Fig6a, fig.width = 13, fig.height= 8}
+#### collape on Genus #### 
+GIMBac.Cq.Genus <- GIMBac.Cq %>% #raw counts
+  tax_glom(taxrank = "Genus")
+
+GIMBac.Cq.Genus.per <- GIMBac.Cq.Genus  %>% 
+  transform_sample_counts(function(x) {100*(x/sum(x))} ) %>%  
+  psmelt()
+
+colnames(GIMBac.Cq.Genus.per)
+levels(GIMBac.Cq.Genus.per$plaque_assay)
+GIMBac.Cq.Genus.per$plaque_assay <- factor(GIMBac.Cq.Genus.per$plaque_assay, 
+                                           levels = c("CQ-7dpi-sucrose", "CQ-7dpi-blood", "7dpi-WNV(-)", "7dpi-WNV(+)", 
+                                                      "CQ-14dpi-sucrose", "CQ-14dpi-blood", "14dpi-WNV(-)", "14dpi-WNV(+)"))
+levels(GIMBac.Cq.Genus.per$plaque_assay)
+
+#### 把一些低丰度的anno改成“others”  ####
+CqBac_agg <- aggregate(Abundance ~ mosq + plaque_assay + Genus, FUN=sum, data=GIMBac.Cq.Genus.per)
+CqBac_wide <- dcast(CqBac_agg, mosq + plaque_assay ~ Genus, value.var = 'Abundance')
+CqBac_wide_ordered <- CqBac_wide[with(CqBac_wide, order(plaque_assay,-g_Wolbachia,-g_Serratia)), ]
+sample_order <- CqBac_wide_ordered$mosq
+
+CqBac_name_10 <- colnames(CqBac_wide[,3:ncol(CqBac_wide)][,colSums(CqBac_wide[,3:ncol(CqBac_wide)])<10])
+
+nc <- which(colnames(GIMBac.Cq.Genus.per) == "Genus")
+nc
+GIMBac.Cq.Genus.per[GIMBac.Cq.Genus.per$Genus %in% CqBac_name_10, nc] <- "Others"
+
+GIMBac.Cq.Genus.per$Genus <- as.factor(GIMBac.Cq.Genus.per$Genus)
+levels(GIMBac.Cq.Genus.per$Genus)
+
+###--- repeat ---### 
+CqBac_agg <- aggregate(Abundance ~ mosq + plaque_assay + Genus, FUN=sum, data=GIMBac.Cq.Genus.per)
+CqBac_wide <- dcast(CqBac_agg, mosq + plaque_assay ~ Genus, value.var = 'Abundance')
+as.data.frame(sort(colSums(CqBac_wide[,3:ncol(CqBac_wide)]) , decreasing=T))
+order <- rev(rownames(as.data.frame(sort(colSums(CqBac_wide[,3:ncol(CqBac_wide)]) , decreasing=T))))
+which(order == "Others")
+order.1 <- c("Others", order[-which(order == "Others")])
+order.1
+
+CqBac_agg$mosq <- factor(CqBac_agg$mosq, levels = sample_order)
+CqBac_agg$Genus <- factor(CqBac_agg$Genus, levels = order.1)
+levels(CqBac_agg$plaque_assay)
+
+#### plot Genera proportion bar plot ####
+col <- c("#5F7FC7", "#AD6F3B", "#CBD588", "#673770", "orange", "#CD9BCD", "#652926", "#C84248", "grey")
+ggplot(CqBac_agg, aes(x = mosq, y = Abundance, fill = Genus)) + 
+  facet_grid(~ plaque_assay,scales="free",space = "free") +  #### Lay out panels in a grid
+  geom_bar(stat = "identity") + #### stat = "identity" : the height of the bar will represent the value in a column of the data frame
+  scale_fill_manual(values = rev(col)) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 8, angle = 90, vjust = 0.5,hjust = 1),
+        axis.title.y = element_text(size = 12,vjust = 0.5),
+        plot.margin = unit(c(1, 1, 1, 1), "cm"),
+        strip.text.x = element_text(size =8, colour = "black"),
+        plot.title = element_text(hjust = 0.5)) + 
+  guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1))
+```
+
+### 3.2.2 Proportion of *Asaia* and *Wolbachia* ###
+``` {r FigS3, fig.width = 12, fig.height= 6}
+CqBac_agg$dpi <- CqBac_agg$plaque_assay
+CqBac_agg$dpi <- gsub("CQ-", "", CqBac_agg$dpi)
+
+CqBac_agg_v <- CqBac_agg %>% separate(dpi, c("dpi", "food"), sep ="-"); head(CqBac_agg_v)
+CqBac_agg_v$Genus <- gsub("g_", "", CqBac_agg_v$Genus); head(CqBac_agg_v)
+CqBac_agg_v <- CqBac_agg_v[CqBac_agg_v$Genus %in% c("Asaia", "Wolbachia"), ]
+CqBac_agg_v$dpi <- factor(CqBac_agg_v$dpi, levels= c("7dpi", "14dpi"))
+
+wilcox.test(CqBac_agg_v[CqBac_agg_v$Genus=="Asaia"&CqBac_agg_v$dpi=="7dpi",]$Abundance,
+            CqBac_agg_v[CqBac_agg_v$Genus=="Asaia"&CqBac_agg_v$dpi=="14dpi",]$Abundance, 
+            p.adjust.method = "BH")
+
+wilcox.test(CqBac_agg_v[CqBac_agg_v$Genus=="Wolbachia"&CqBac_agg_v$dpi=="7dpi",]$Abundance,
+            CqBac_agg_v[CqBac_agg_v$Genus=="Wolbachia"&CqBac_agg_v$dpi=="14dpi",]$Abundance, 
+            p.adjust.method = "BH")
+
+CqBac_agg_v$Food_sources[CqBac_agg_v$food == "WNV(+)"] <- "WNV(plaque+)"
+CqBac_agg_v$Food_sources[CqBac_agg_v$food == "WNV("] <- "WNV(plaque-)"
+CqBac_agg_v$Food_sources[CqBac_agg_v$food == "sucrose"] <- "sucrose"
+CqBac_agg_v$Food_sources[CqBac_agg_v$food == "blood"] <- "blood"
+CqBac_agg_v$Food_sources <- factor(CqBac_agg_v$Food_sources, levels=c("sucrose", "blood", "WNV(plaque-)", "WNV(plaque+)"))
+
+ggplot(CqBac_agg_v, aes(x=Genus, y=Abundance,fill=dpi)) + 
+  geom_boxplot(na.rm = TRUE,outlier.shape = NA)+
+  facet_wrap(~Food_sources, nrow = 1)+
+  theme_bw()+
+  scale_fill_manual(values = col_6_Ae[c(3,1)])+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 12, hjust = 0.5),
+        axis.text.y = element_text(size = 12),
+        axis.title.y = element_text(size = 12,vjust = 0.5),
+        # plot.margin = unit(c(1, 1, 1, 1), "cm"),
+        strip.text.x = element_text(size =12, colour = "black"),
+        plot.title = element_text(hjust = 0.5))+
+  ylab("Proportion")+
+  stat_compare_means()
+```
+
+### 3.2.2 Alpha diversity on genus level ###
+``` {r Fig6b, fig.width = 6, fig.height= 7}
+#### rarefy  ####
+sort(rowSums(otu_table(GIMBac.Cq)))
+
+set.seed(100)
+GIMBac.Cq_rare = rarefy_even_depth(GIMBac.Cq, sample.size = 24168, replace=FALSE, trimOTUs = F)
+
+GIMBac.Cq_rm = prune_samples(sample_sums(GIMBac.Cq)<24168, GIMBac.Cq)
+GIMBac.Cq_rm
+
+GIMBac.Cq_rareall <- merge_phyloseq(GIMBac.Cq_rare, GIMBac.Cq_rm)
+
+#### collape on Genus #### 
+GIMBac.Cq_rare.Genus <- GIMBac.Cq_rareall %>% #raw counts
+  tax_glom(taxrank = "Genus")
+
+#### alpha diversity plot ####
+GIMBac.Cq_rare.Genus
+GIMBac.Cq_rare.Genus.7d = subset_samples(GIMBac.Cq_rare.Genus, dpi == "7dpi")
+GIMBac.Cq_rare.Genus.14d = subset_samples(GIMBac.Cq_rare.Genus, dpi == "14dpi")
+sample_data(GIMBac.Cq_rare.Genus)$dpi <- factor(sample_data(GIMBac.Cq_rare.Genus)$dpi, levels = c("7dpi", "14dpi"))
+
+plot_richness(GIMBac.Cq_rare.Genus, x="Info1",measures=c("Shannon"),col="Treatment", shape = "dpi") +
+  scale_color_manual(values = rev(col_6_Ae[c(4:6)])) +
+  theme_bw() +
+  theme(axis.title.x = element_blank(),
+        axis.text.x  = element_text(size = 12, colour = "black", angle = 90, hjust = 1, vjust=0.5),
+        strip.text.x = element_text(size = 12, colour = "black"),
+        plot.title = element_text(hjust = 0.5, size = 12)) +
+  ggtitle("Alpha diversity of bacteriome in Cx. quinquefasciatus on genus level")+
+  ylab("Alpha Diversity Value")
+
+erich <- estimate_richness(GIMBac.Cq_rare.Genus, measures = c("Shannon"))
+pairwise.wilcox.test(erich$Shannon,sample_data(GIMBac.Cq_rare.Genus)$Info1, p.adjust.method = "BH")
+```
+
+### 3.2.3 Beta diversity on genus level ####
+``` {r Fig6c, fig.width = 7, fig.height= 6}
+GIMBac.Cq_rare.Genus
+GIMBac.Cq_rare.Genus.7d
+GIMBac.Cq_rare.Genus.14d
+
+#### 7dpi ##### 
+GP.ord.GIMBac.Cq_rare.Genus.7d <- ordinate(GIMBac.Cq_rare.Genus.7d, "PCoA", "bray")
+
+plot_ordination(GIMBac.Cq_rare.Genus.7d, GP.ord.GIMBac.Cq_rare.Genus.7d, type = "samples", color = "Treatment", shape = "group.plaque.qPCR.0.body.0.")+
+  theme_bw()+
+  geom_point(size = 4)  + 
+  scale_color_manual(values = col_6_Ae[c(4:6)])+
+  scale_shape_manual(values=c(shap[1:4],shap[6])) +
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of bacteriome in Cx. quinquefasciatus at 7dpi")
+dev.off()
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GIMBac.Cq_rare.Genus.7d_bray <- phyloseq::distance(GIMBac.Cq_rare.Genus.7d, method = "bray")
+# make a data frame from the sample_data
+GIMBac.Cq_rare.Genus.7d_sampledf <- data.frame(sample_data(GIMBac.Cq_rare.Genus.7d))
+# Adonis test
+adonis(GIMBac.Cq_rare.Genus.7d_bray ~ Treatment, data = GIMBac.Cq_rare.Genus.7d_sampledf)
+```
+``` {r Fig6d, fig.width = 7, fig.height= 6}
+#### 14dpi ##### 
+GP.ord.GIMBac.Cq_rare.Genus.14d <- ordinate(GIMBac.Cq_rare.Genus.14d, "PCoA", "bray")
+
+plot_ordination(GIMBac.Cq_rare.Genus.14d, GP.ord.GIMBac.Cq_rare.Genus.14d, type = "samples", color = "Treatment", shape = "group.plaque.qPCR.0.body.0.")+
+  theme_bw()+
+  geom_point(size = 4)  + 
+  scale_color_manual(values = col_6_Ae[c(4:6)])+
+  scale_shape_manual(values=c(shap[1:4],shap[6])) +
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of bacteriome in Cx. quinquefasciatus at 14dpi")
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GIMBac.Cq_rare.Genus.14d_bray <- phyloseq::distance(GIMBac.Cq_rare.Genus.14d, method = "bray")
+# make a data frame from the sample_data
+GIMBac.Cq_rare.Genus.14d_sampledf <- data.frame(sample_data(GIMBac.Cq_rare.Genus.14d))
+# Adonis test
+adonis(GIMBac.Cq_rare.Genus.14d_bray ~ Treatment, data = GIMBac.Cq_rare.Genus.14d_sampledf)
+
+```
+
+# 4 DESeq2 determined differential bacteria #
+``` {r}
+#### Aedes ####
+df_otu <- as.data.frame(t(GIMBac.Aa_rare.Genus@otu_table))
+df_tax <- as.data.frame(GIMBac.Aa_rare.Genus@tax_table)
+df_meta <- data.frame(sample_data(GIMBac.Aa_rare.Genus))
+df <- merge(df_otu, df_tax, by = "row.names", all=T)
+#### Aedes-Diet & Aedes-Infectious ####
+AAdiet <- readRDS("~/Desktop/mosq_Guad_infection/RDS/bacteria_DESeq2_AA_treatment.RDS")
+AAdiet
+AAinfec <- readRDS("~/Desktop/mosq_Guad_infection/RDS/Bacteria_DESeq2_AA_infectious.RDS")
+AAinfec
+gp <- as.data.frame(sort(table(c(AAdiet[[1]]$Genus, AAdiet[[2]]$Genus, AAdiet[[3]]$Genus, AAinfec[[1]]$Genus)), decreasing = T))
+gp <- gp[-c(8,10,12),]
+order <- c("Chryseobacterium", "Novosphingobium", "Acidovorax", "Cupriavidus", "Roseococcus",
+           "Acinetobacter", "Klebsiella", "Brevundimonas", "Sphingobacterium")
+
+df_sp <- df[df$Genus %in% as.character(gp$Var1),]
+df_sp <- df_sp[, colnames(df_sp) %in% c(colnames(df_otu), "Genus")]
+df_spm <- melt(df_sp); head(df_spm)
+df_meta$variable <- rownames(df_meta)
+df_merge <- merge(df_spm, df_meta, by = "variable", all =T); head(df_merge)
+
+df_merge$log10reads <- log10(df_merge$value)
+is.na(df_merge$log10reads) <- sapply(df_merge$log10reads, is.infinite)
+df_merge$log10reads[is.na(df_merge$log10reads)] <- 0
+df_merge$Genus <- gsub("g_", "", df_merge$Genus)
+df_merge$Genus <- factor(df_merge$Genus, levels = order); levels(df_merge$Genus)
+
+df_merge_aa <- df_merge
+df_merge_aa <- df_merge_aa[,colnames(df_merge_aa) %in% c("Treatment", "Genus", "variable", "log10reads")]
+
+#### Culex ####
+df_otu <- as.data.frame(t(GIMBac.Cq_rare.Genus@otu_table))
+df_tax <- as.data.frame(GIMBac.Cq_rare.Genus@tax_table)
+df_meta <- data.frame(sample_data(GIMBac.Cq_rare.Genus))
+df <- merge(df_otu, df_tax, by = "row.names", all=T)
+#### Culex-Diet ####
+CQdiet <- readRDS("~/Desktop/mosq_Guad_infection/RDS/Bacteria_DESeq2_CQ_treatment.RDS")
+CQdiet
+
+gp <- as.data.frame(sort(table(c(CQdiet[[1]]$Genus, CQdiet[[2]]$Genus, CQdiet[[3]]$Genus)), decreasing = T))
+gp
+order <- c("Serratia", "Pseudomonas", "Bacillus")
+
+df_sp <- df[df$Genus %in% c("g_Serratia", "g_Pseudomonas", "g_Bacillus"),]
+df_sp <- df_sp[, colnames(df_sp) %in% c(colnames(df_otu), "Genus")]
+df_spm <- melt(df_sp); head(df_spm)
+df_meta$variable <- rownames(df_meta)
+df_merge <- merge(df_spm, df_meta, by = "variable", all =T); head(df_merge)
+
+df_merge$log10reads <- log10(df_merge$value)
+is.na(df_merge$log10reads) <- sapply(df_merge$log10reads, is.infinite)
+df_merge$log10reads[is.na(df_merge$log10reads)] <- 0
+df_merge$Genus <- gsub("g_", "", df_merge$Genus)
+df_merge$Genus <- factor(df_merge$Genus, levels = order); levels(df_merge$Genus)
+
+df_merge_cq <- df_merge
+df_merge_cq <- df_merge_cq[,colnames(df_merge_cq) %in% c("Treatment", "Genus", "variable", "log10reads")]
+
+#### Aedes & Culex ####
+df_merge_all <- rbind(df_merge_aa, df_merge_cq)
+df_merge_all$Treatment
+df_merge_all$Treatment <- factor(df_merge_all$Treatment , levels = c("AA-sucrose", "AA-blood", "AA-ZIKV", "CQ-sucrose", "CQ-blood", "CQ-WNV"))
+```
+``` {r Fig7, fig.width = 8.5, fig.height= 12}
+####  plot  ####
+ggplot(df_merge_all, aes(x = Treatment, y = log10reads, fill = Treatment)) + 
+  facet_wrap(~Genus,ncol = 3, scales="free_x") + 
+  theme_bw() +
+  geom_boxplot(na.rm = TRUE,outlier.shape = NA, alpha = 0.7)+
+  geom_jitter(shape=19, position=position_jitter(0.2), size = 2,alpha = 0.5)+
+  scale_fill_manual(values = c(rev(col_6_Ae[c(4:6)]), rev(col_6_Ae[c(4:6)])))+
+  theme(axis.title.y = element_text(size = 14, vjust=0.5),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.position = "right",
+        strip.text.x =element_text(size = 14, hjust = 0.5)) +
+  ylab("log10 rarefied counts")
+
+```
+
+# 5 Phageome analysis #
+``` {r}
+GuadPhage <- readRDS("~/Desktop/mosq_Guad_infection/RDS/GIM_phagome_raw.RDS")
+```
+## 5.1 HEATMAP of phageome ##
+``` {r}
+#### load phyloseq project #### 
+Phage_host = readRDS("~/Desktop/mosq_Guad_infection/RDS/GIM_phage_host.RDS")
+df <- as.data.frame(otu_table(Phage_host))
+df_tax <- as.data.frame(tax_table(Phage_host))
+df_meta <- data.frame(sample_data(Phage_host))
+
+cat <- c("AA-sucrose", "AA-blood", "AA-ZIKV",  "CQ-sucrose", "CQ-blood", "CQ-WNV")
+#### mat1 log10 reads per treatment #####
+Phage_host_treatment <- Phage_host %>%
+  tax_glom(taxrank = "Treatment")
+
+Phage_host_treatment_merge <- merge(as.data.frame(Phage_host_treatment@otu_table), as.data.frame(Phage_host_treatment@tax_table), by="row.names")
+rownames(Phage_host_treatment_merge) <- Phage_host_treatment_merge$Treatment
+Phage_host_treatment_merge <- Phage_host_treatment_merge[, !colnames(Phage_host_treatment_merge) %in% c("Row.names", "mosq_species", "Treatment","dpi", "Info1")] 
+mat1 <- log10(Phage_host_treatment_merge)
+is.na(mat1) <- sapply(mat1, is.infinite)
+mat1[is.na(mat1)]<-0 
+mat1[1:5,1:5]
+
+mat1 <- mat1[cat,]
+rownames(mat1)
+
+#### mat2 presence% per treatment #####
+Phage_host_pre <- Phage_host %>%
+  tax_glom(taxrank = "Treatment")
+Phage_host_pre_merge <- merge(as.data.frame(Phage_host_pre@otu_table), as.data.frame(Phage_host_pre@tax_table), by="row.names")
+rownames(Phage_host_pre_merge) <- Phage_host_pre_merge$Treatment
+Phage_host_pre_merge <- Phage_host_pre_merge[, !colnames(Phage_host_pre_merge) %in% c("Row.names", "mosq_species", "Treatment","dpi", "Info1")] 
+mat2 <- Phage_host_pre_merge
+mat2 <- mat2[cat,]
+rownames(mat2)
+
+table(df_tax$Treatment)
+mat2[1,] <- mat2[1,]/10*100
+mat2[2,] <- mat2[2,]/10*100
+mat2[3,] <- mat2[3,]/74*100
+mat2[4,] <- mat2[4,]/10*100
+mat2[5,] <- mat2[5,]/10*100
+mat2[6,] <- mat2[6,]/40*100
+
+
+##abundance log transform
+dflog <- log10(df)
+is.na(dflog) <- sapply(dflog, is.infinite)
+dflog[is.na(dflog)]<-0
+
+#### order rows-sample and columns-contigs #### 
+##column - phage host
+host_or <- data.frame(sort(table(df_meta$host_genus), decreasing=T)); host_or
+df_meta$host_genus <- factor(df_meta$host_genus, levels = host_or$Var1); levels(df_meta$host_genus)
+
+##column - viral annotation
+family_or <- data.frame(sort(table(df_meta$family), decreasing=T)); family_or
+df_meta$family <- factor(df_meta$family, levels = family_or$Var1); levels(df_meta$family)
+
+##column - sample order-length
+df_meta$log10length <- log10(df_meta$length)
+contigs_ordered <- df_meta[with(df_meta, order(host_genus, -log10length)),]
+df_meta$length1k <- df_meta$length/1000
+
+########  draw the map ########
+heatmap_col_tp1 <- colorRamp2(c(0:5), brewer.pal(6, "YlOrBr"), space = "RGB") #heatmap colour
+heatmap_col_tp2 <- colorRamp2(c(0,20,40,60,80,100), brewer.pal(6, "YlGnBu"), space = "RGB")
+heatmap_col_tp3 <- colorRamp2(c(0,20,40,60,80,100), brewer.pal(6, "Greens"), space = "RGB")
+
+#### host block ####  
+colh = c("#818687FF", "#2D5C21FF", "#2CA0A9FF", "#A1E4BDFF", "#323B34FF", "#C8D656FF")
+colhost = HeatmapAnnotation(host = anno_block(gp = gpar(fill = colh)),show_annotation_name = F, annotation_label = F) 
+
+#### viral annotation ####  
+colf = c("#818687FF", "#66C2A5", "#FC8D62", "#8DA0CB", "#FFD92F", "#E5C494")
+colfamily = HeatmapAnnotation(condition = df_meta$family,
+                              col = list(condition = c("no annotation"=colf[1], "Siphoviridae"=colf[2], "Myoviridae"=colf[3],
+                                                       "Podoviridae"=colf[4], "Microviridae"=colf[5], "Herelleviridae"=colf[6]),
+                                                       show_annotation_name = T, annotation_label = F, 
+                                                       border = T))
+
+#### contigs length ####  
+collen = HeatmapAnnotation(length = anno_barplot(df_meta$length1k, ylim = c(0,50),
+                                                 height = unit(2, "cm")))
+df_meta$aai_completeness[is.na(df_meta$aai_completeness)] <- 0
+complete = HeatmapAnnotation(complete = df_meta$aai_completeness, col = list(complete=heatmap_col_tp3))
+
+#### legend ####  
+lgd_host = Legend(labels = levels(df_meta$host_genus), title = "Predicted_host", legend_gp = gpar(fill = colh))
+lgd_virus = Legend(labels = levels(df_meta$family), title = "Phage_annotation", legend_gp = gpar(fill = colf))
+# lgd_reads = Legend(title = "Log10 reads number", col = heatmap_col_tp1, at = c(0:6), labels = c("0", "1", "2", "3", "4", "5", "6"))
+# lgd_pro = Legend(title = "Relative presence", col = heatmap_col_tp2, at = c(0:5), labels = c("0", "20", "40", "60", "80", "100"))
+pd = packLegend(lgd_host, lgd_virus, 
+                # lgd_reads, lgd_pro, 
+                direction = "vertical")
+```
+``` {r Fig8f, fig.width = 16, fig.height= 6}
+#### plot ####  
+ht1 <- Heatmap(as.matrix(mat1),
+               name = "log10 reads number", #title of legend
+               row_title = "Samples",
+               col = heatmap_col_tp1,
+               column_split = df_meta$host_genus, 
+               row_names_gp = gpar(fontsize = 12),
+               column_names_gp = gpar(fontsize = 0),
+               column_order = contigs_ordered$name,
+               row_order = cat,
+               cluster_rows = F,
+               cluster_columns= F,
+               rect_gp = gpar(col = "white", lwd = 0.5))
+ht2 <- Heatmap(as.matrix(mat2),
+               name = "Present proportion", #title of legend
+               row_title = "Samples",
+               col = heatmap_col_tp2,
+               column_split = df_meta$host_genus, 
+               row_names_gp = gpar(fontsize = 12),
+               column_names_gp = gpar(fontsize = 0),
+               column_order = contigs_ordered$name,
+               row_order = cat,
+               cluster_rows = F,
+               cluster_columns= F,
+               rect_gp = gpar(col = "white", lwd = 0.5))
+ 
+ht_list = colhost %v% colfamily  %v% complete %v% collen %v% ht1 %v% ht2
+# draw(ht_list, annotation_legend_list = pd)
+ht_draw = draw(ht_list, annotation_legend_list = pd)
+```
+
+## 5.2 Alpha diversity of phageome ##
+``` {r Fig8a, fig.width = 7, fig.height= 6}
+GuadPhage_samselect = prune_samples(sample_sums(GuadPhage) > 0 , GuadPhage)
+GuadPhage_samselect
+
+factor(sample_data(GuadPhage_samselect)$Treatment)
+
+sample_data(GuadPhage_samselect)$Treatment <- factor(sample_data(GuadPhage_samselect)$Treatment, 
+                                                     levels = c("AA-sucrose","AA-blood", "AA-ZIKV", "CQ-sucrose", "CQ-blood", "CQ-WNV"))
+
+phage <- scan(file = "~/OneDrive/1. Project + Guadeloupe mosq/phage_contigs_complete+20.txt", what="", sep="\n")
+my_subset <- subset(otu_table(GuadPhage_samselect), rownames(otu_table(GuadPhage_samselect)) %in% phage)
+new_GuadPhage_samselect <- merge_phyloseq(my_subset, tax_table(GuadPhage_samselect), sample_data(GuadPhage_samselect))
+
+plot_richness(new_GuadPhage_samselect, x="Treatment",measures=c("Shannon"),col="Treatment", shape = "mosq_species") + 
+  scale_color_manual(values = rev(c(col[9],col[5],col[2],col[9],col[5],col[2]))) +
+  theme_bw()+
+  # facet_wrap(~mosq_species, scales = "free")+
+  scale_shape_manual(values = c(16, 17))+
+  theme(axis.title.x = element_blank(),
+        axis.text.x  = element_blank(),
+        strip.text.x = element_text(size = 12, colour = "black"),
+        plot.title = element_text(hjust = 0.5, size = 12),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Alpha diversity of phages")+
+  ylab("Alpha Diversity Value")
+
+erich <- estimate_richness(new_GuadPhage_samselect, measures = c("Shannon"))
+pairwise.wilcox.test(erich$Shannon,sample_data(new_GuadPhage_samselect)$Treatment, p.adjust.method = "BH")
+```
+
+## 5.3 Phageome of *Aedes aegypti* ##
+``` {r}
+####  color ####
+col = plasma(9,alpha = 1, begin=0.9, end = 0, direction = 1)
+
+#### Phyloseq Project #### 
+GuadPhage_Ae_aegypti <- subset_samples(GuadPhage, mosq_species  == "Ae_aegypti" ) 
+GuadPhage_Ae_aegypti
+GP.M1_AA = GuadPhage_Ae_aegypti
+GP.M1_AA
+sum(sample_sums(GP.M1_AA))
+sample_data(GP.M1_AA)$Treatment <- factor(sample_data(GP.M1_AA)$Treatment, levels = c("AA-ZIKV","AA-blood","AA-sucrose"))
+
+#### subset #### 
+sample_sums(GP.M1_AA)
+sample_sums(GP.M1_AA)[which(sample_sums(GP.M1_AA) == 0)]
+GP.M1_AA_samselect = prune_samples(sample_sums(GP.M1_AA) > 0 , GP.M1_AA)
+GP.M1_AA_samselect
+
+GP.M1_AA_select_0 = prune_taxa(taxa_sums(GP.M1_AA_samselect) > 0, GP.M1_AA_samselect)
+GP.M1_AA_select_0
+```
+``` {r Fig8b, fig.width = 7, fig.height= 6}
+#### PCoA ####
+GP.ord.GP.M1_AA_samselect <- ordinate(GP.M1_AA_samselect, "PCoA", "bray")
+plot_ordination(GP.M1_AA_samselect, GP.ord.GP.M1_AA_samselect, type = "samples", col = "Treatment")+#,label= "name") +
+  theme_bw() +
+  geom_point(size = 4, alpha=0.7)  + 
+  scale_color_manual(values = c(col[9],col[5],col[2]))+
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of phages in all Ae. aegypti samples")
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GP.M1_species_select_bray <- phyloseq::distance(GP.M1_AA_samselect, method = "bray")
+# make a data frame from the sample_data
+GP.M1_species_select_sampledf <- data.frame(sample_data(GP.M1_AA_samselect))
+# Adonis test
+adonis(GP.M1_species_select_bray ~ Treatment, data = GP.M1_species_select_sampledf)
+```
+
+## 5.4 Phageome *Culex quinquefasciatus* ##
+``` {r}
+#### Phyloseq Project #### 
+GuadPhage_Cx_quinquefasciatus <- subset_samples(GuadPhage, mosq_species  == "Cx_quinquefasciatus" ) 
+GuadPhage_Cx_quinquefasciatus
+GP.M1_CQ = GuadPhage_Cx_quinquefasciatus
+GP.M1_CQ
+
+sample_data(GP.M1_CQ)$group.plaque.qPCR.0.body.0. <- factor(sample_data(GP.M1_CQ)$group.plaque.qPCR.0.body.0., 
+                                                            levels = c("7dpi-WNV(+/)", "7dpi-WNV(-/+)", "7dpi-WNV(-/-)","CQ-7dpi-blood","CQ-7dpi-sucrose",
+                                                                       "14dpi-WNV(+/)","14dpi-WNV(-/+)","14dpi-WNV(-/-)","CQ-14dpi-blood","CQ-14dpi-sucrose"))
+sample_data(GP.M1_CQ)$Info1 <- factor(sample_data(GP.M1_CQ)$Info1, levels = c("CQ-7dpi-WNV", "CQ-7dpi-blood", "CQ-7dpi-sucrose", "CQ-14dpi-WNV", "CQ-14dpi-blood", "CQ-14dpi-sucrose"))
+sample_data(GP.M1_CQ)$Treatment <- factor(sample_data(GP.M1_CQ)$Treatment, levels = c("CQ-WNV","CQ-blood","CQ-sucrose"))
+levels(sample_data(GP.M1_CQ)$Info1)
+levels(sample_data(GP.M1_CQ)$group.plaque.qPCR.0.body.0.)
+
+#### subset #### 
+sample_sums(GP.M1_CQ)
+sample_sums(GP.M1_CQ)[which(sample_sums(GP.M1_CQ) == 0)]
+GP.M1_CQ_samselect = prune_samples(sample_sums(GP.M1_CQ) > 0 , GP.M1_CQ)
+GP.M1_CQ_samselect
+
+GP.M1_CQ_select_0 = prune_taxa(taxa_sums(GP.M1_CQ_samselect) > 0, GP.M1_CQ_samselect)
+GP.M1_CQ_select_0
+
+```
+``` {r Fig8e, fig.width = 7, fig.height= 6}
+#### PCoA all samples #### 
+GP.ord.GP.M1_CQ_samselect <- ordinate(GP.M1_CQ_samselect, "PCoA", "bray")
+
+plot_ordination(GP.M1_CQ_samselect, GP.ord.GP.M1_CQ_samselect, type = "samples", col = "Treatment")+
+  theme_bw() +
+  geom_point(size = 4, alpha=0.7)  + 
+  scale_color_manual(values = c(col[9],col[5],col[2]))+
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of phages in all Cx. quinquefasciatus samples")+
+  stat_ellipse(type = "norm", linetype = 2,level=0.6,aes(group = Treatment))
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GP.M1_species_select_bray <- phyloseq::distance(GP.M1_CQ_select_0, method = "bray")
+# make a data frame from the sample_data
+GP.M1_species_select_sampledf <- data.frame(sample_data(GP.M1_CQ_select_0))
+# Adonis test
+adonis(GP.M1_species_select_bray ~ Treatment, data = GP.M1_species_select_sampledf)
+# # Call:
+beta <- betadisper(GP.M1_species_select_bray, GP.M1_species_select_sampledf$Treatment)
+permutest(beta)
+```
+``` {r Fig8c, fig.width = 7, fig.height= 6}
+#### PCoA 7 dpe #### 
+GP.M1_CQ_select_0_7dpi = subset_samples(GP.M1_CQ_samselect, dpi == "7dpi")
+GP.M1_CQ_select_7dpi = prune_taxa(taxa_sums(GP.M1_CQ_select_0_7dpi) > 0, GP.M1_CQ_select_0_7dpi)
+levels(sample_data(GP.M1_CQ_select_7dpi)$group.plaque.qPCR.0.body.0.)
+
+GP.ord.GP.M1_CQ_select_7dpi <- ordinate(GP.M1_CQ_select_7dpi, "PCoA", "bray")
+
+plot_ordination(GP.M1_CQ_select_7dpi, GP.ord.GP.M1_CQ_select_7dpi, type = "samples", color = "Treatment", shape = "group.plaque.qPCR.0.body.0.") +
+  theme_bw()+
+  geom_point(size = 4, alpha=0.7)  + 
+  scale_shape_manual(values=c(shap[1:4],shap[6])) +
+  scale_color_manual(values = c(col[9],col[5],col[2]))+
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of phages in Cx. quinquefasciatus at 7 dpe")+
+  stat_ellipse(type = "norm", linetype = 2,level=0.6,aes(group = Treatment), color="black")
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GP.M1_species_select_bray <- phyloseq::distance(GP.M1_CQ_select_0_7dpi, method = "bray")
+# make a data frame from the sample_data
+GP.M1_species_select_sampledf <- data.frame(sample_data(GP.M1_CQ_select_0_7dpi))
+# Adonis test
+adonis(GP.M1_species_select_bray ~ Treatment, data = GP.M1_species_select_sampledf)
+```
+``` {r Fig8d, fig.width = 7, fig.height= 6}
+#### PCoA 14 dpe #### 
+GP.M1_CQ_select_0_14dpi = subset_samples(GP.M1_CQ_samselect, dpi == "14dpi")
+GP.M1_CQ_select_14dpi = prune_taxa(taxa_sums(GP.M1_CQ_select_0_14dpi) > 0, GP.M1_CQ_select_0_14dpi)
+levels(sample_data(GP.M1_CQ_select_14dpi)$group.plaque.qPCR.0.body.0.)
+
+GP.ord.GP.M1_CQ_select_14dpi <- ordinate(GP.M1_CQ_select_14dpi, "PCoA", "bray")
+
+plot_ordination(GP.M1_CQ_select_14dpi, GP.ord.GP.M1_CQ_select_14dpi, type = "samples", color = "Treatment", shape = "group.plaque.qPCR.0.body.0.")+
+  theme_bw()+
+  geom_point(size = 4, alpha=0.7)  +  
+  scale_shape_manual(values=c(shap[1:4],shap[6])) +
+  scale_color_manual(values = c(col[9],col[5],col[2]))+
+  theme(legend.title=element_blank(),
+        legend.position = "right",
+        plot.title = element_text(size = 12,hjust = 0.5))+
+  ggtitle("PCoA of phages in Cx. quinquefasciatus at 14dpi")+
+  stat_ellipse(type = "norm", linetype = 2,level=0.8,aes(group = Treatment), color="black")
+
+set.seed(1)
+# Calculate bray curtis distance matrix
+GP.M1_species_select_bray <- phyloseq::distance(GP.M1_CQ_select_0_14dpi, method = "bray")
+# make a data frame from the sample_data
+GP.M1_species_select_sampledf <- data.frame(sample_data(GP.M1_CQ_select_0_14dpi))
+# Adonis test
+adonis(GP.M1_species_select_bray ~ Treatment, data = GP.M1_species_select_sampledf)
+```
+
+## 5.5 Phage correlate with bacteria ##
+``` {r}
+####  phage  ####
+Phage_host = readRDS("~/Desktop/mosq_Guad_infection/RDS/GIM_phage_host.RDS")
+Phage_host_subset <- subset_samples(Phage_host, host_genus != "no result")
+pOTU <- as.data.frame(t(Phage_host_subset@otu_table))
+pTAX <- data.frame(sample_data(Phage_host_subset))
+pTAX <- pTAX[,15:16]
+pTAX$phageID <- rownames(pTAX)
+pOTU$phageID <- rownames(pOTU)
+phage_merge <- merge(pOTU, pTAX, by = "phageID")
+
+####  bacteria  ####
+Bac = readRDS("~/Desktop/mosq_Guad_infection/16s_rRNA/GIM_Bacteriome_decont_SLV132.rds")
+BacGenus <- Bac %>%
+  tax_glom(taxrank = "Genus")
+
+BacOTU <- as.data.frame(t(BacGenus@otu_table))
+colnames(BacOTU) <- paste("Bac_", colnames(BacOTU), sep = "")
+BacTAX <- as.data.frame(BacGenus@tax_table)
+BacOTU$bacID <- rownames(BacOTU)
+BacTAX$bacID <- rownames(BacTAX)
+Bac_merge <- merge(BacOTU, BacTAX[,5:7], by = "bacID")
+Bac_merge$Genus <- gsub("g_", "", Bac_merge$Genus)
+
+####  merge phage + bacteria  ####
+colnames(phage_merge) <- gsub("host_genus", "Genus", colnames(phage_merge))
+
+Bac_merge_slec <- Bac_merge[Bac_merge$Genus %in% c(phage_merge$Genus, "uc_f_Enterobacteriaceae"),]
+phage_merge$Genus_og <- phage_merge$Genus
+phage_merge$Genus <- gsub("Enterobacter", "uc_f_Enterobacteriaceae", phage_merge$Genus)
+phage_merge$Genus <- gsub("Phytobacter", "uc_f_Enterobacteriaceae", phage_merge$Genus)
+
+phage_Bac <- merge(phage_merge, Bac_merge_slec, all = T, by ="Genus") 
+phage_Bac <- phage_Bac[, !colnames(phage_Bac) %in% c("Family", "host_species", "bacID", "Bac_NC-p07", "Bac_NC-p06", "Bac_GIM-NC1", "Bac_GIM-NC2")]
+phage_Bac_melt <- melt(phage_Bac)
+phage_Bac_melt <- phage_Bac_melt %>% separate(variable, c("cat","Sample"), sep ="GIM"); head(phage_Bac_melt)
+
+phage_Bac_melt$Sample <- gsub("-", "", phage_Bac_melt$Sample)
+phage_Bac_melt$Sample <- paste("GIM", phage_Bac_melt$Sample, sep = "")
+phage_Bac_melt$cat <- ifelse(phage_Bac_melt$cat == "", "phage", "bacteria"); head(phage_Bac_melt)
+
+phage_Bac_melt_wide <- dcast(phage_Bac_melt, phageID + Sample + Genus + Genus_og ~ cat, value.var = 'value')
+
+####  add meta  ####
+head(phage_Bac_melt)
+phage_Bac_melt_wide$Genus <- as.factor(phage_Bac_melt_wide$Genus)
+
+phage_Bac_melt_wide$log10bacteria <- log10(phage_Bac_melt_wide$bacteria)
+is.na(phage_Bac_melt_wide$log10bacteria) <- sapply(phage_Bac_melt_wide$log10bacteria, is.infinite)
+phage_Bac_melt_wide$log10bacteria[is.na(phage_Bac_melt_wide$log10bacteria)]<-0
+
+phage_Bac_melt_wide$log10phage <- log10(phage_Bac_melt_wide$phage)
+is.na(phage_Bac_melt_wide$log10phage) <- sapply(phage_Bac_melt_wide$log10phage, is.infinite)
+phage_Bac_melt_wide$log10phage[is.na(phage_Bac_melt_wide$log10phage)]<-0
+
+samplemeta <- data.frame(BacGenus@sam_data); colnames(samplemeta)
+samplemeta <- samplemeta[ ,colnames(samplemeta) %in% c("mosq", "Index", "mosq_species", "Treatment", "dpi", "plaque_assay", "Info1")]
+samplemeta$Sample <- gsub("-", "", rownames(samplemeta))
+
+phage_Bac_melt_wide_meta <- merge(phage_Bac_melt_wide, samplemeta, by= "Sample")
+
+levels(phage_Bac_melt_wide_meta$Genus)
+phage_Bac_melt_wide_metaSle <- phage_Bac_melt_wide_meta[phage_Bac_melt_wide_meta$Genus %in% c("Wolbachia", "Serratia"),]
+
+phage_Bac_melt_wide_metaSle$Genus <- factor(phage_Bac_melt_wide_metaSle$Genus, levels = c("Wolbachia", "Serratia"))
+phage_Bac_melt_wide_metaSle$mosq_species <- factor(phage_Bac_melt_wide_metaSle$mosq_species, levels = c("Ae_aegypti", "Cx_quinquefasciatus"))
+
+```
+``` {r Fig8h, fig.width = 8, fig.height= 5}
+####  plot  ####
+ggscatter(phage_Bac_melt_wide_metaSle, x = "log10bacteria", y = "log10phage",
+          color = "mosq_species", palette = c("#7294D4", "#C27D38"), size = 2.2, alpha = 0.8,
+          conf.int = T, cor.coef = TRUE, cor.method = "pearson")+
+  facet_wrap(~Genus)+
+  geom_smooth(color="black")+
+  theme_bw()+
+  theme(axis.title.y = element_text(size = 12, vjust=0.5),
+        axis.title.x = element_text(size = 12, hjust=0.5),
+        panel.grid.minor = element_blank(),
+        legend.position = "top",
+        strip.text.x =element_text(size = 14, hjust = 0.5)) +
+  xlab("log10 host bacteria reads")+
+  ylab("1og10 phage reads")
+
+```
